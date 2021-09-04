@@ -28,6 +28,10 @@ stbi_uc* loadTextureFile(std::string fileName, int* width, int* height, VkDevice
 	return image;
 }
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 using namespace VKRENDER;
 
 Render::Render(GLFWwindow* win) : win(win) {
@@ -74,7 +78,7 @@ void Render::init() {
 		
 		// Create a mesh
 		// Vertex Data
-		std::vector<Vertex> meshVertices = {
+		/*std::vector<Vertex> meshVertices = {
 			{ { -0.4, 0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 1.0f, 1.0f } },	// 0
 		{ { -0.4, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 1.0f, 0.0f } },	    // 1
 		{ { 0.4, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },    // 2
@@ -105,7 +109,9 @@ void Render::init() {
 			createTexture("panda.jpg"));
 
 		meshList.push_back(firstMesh);
-		meshList.push_back(secondMesh);
+		meshList.push_back(secondMesh);*/
+
+		createTexture("plain.png");
 	}
 	catch (const std::runtime_error& e) {
 		std::cout << "ERROR: " << e.what() << std::endl;
@@ -220,7 +226,7 @@ void Render::clean() {
 		//vkFreeMemory(mainDevice.logicalDevice, modelDUniformBufferMemory[i], nullptr);
 	}
 	for (size_t i = 0; i < meshList.size(); i++) {
-		meshList[i].destroyBuffers();
+		meshList[i].destroyMeshModel();
 	}
 	for (size_t i = 0; i < MAX_FRAME_DRAWS; i++) {
 		vkDestroySemaphore(mainDevice.logicalDevice, renderFinished[i], nullptr);
@@ -1188,33 +1194,41 @@ void Render::recordCommands(uint32_t currentImage) {
 		// Execute pipeline
 		//vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
 		for (size_t j = 0; j < meshList.size(); j++) {
-			VkBuffer vertexBuffers [] = {meshList[j].getVertexBuffer()};					// Buffers to bind
-			VkDeviceSize offsets [] = {0};												// Offsets into buffers being bound
-			vkCmdBindVertexBuffers(commandBuffers[currentImage], 0, 1, vertexBuffers, offsets);	// Command to bind vertex buffer before drawing with them
+			MeshModel thisModel = meshList[j];
 
-			// Bind mesh index buffer, with 0 offset and using the uint32 type
-			vkCmdBindIndexBuffer(commandBuffers[currentImage], meshList[j].getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-			// "Push" constants to given shader stage directly (no buffer)
-			
 			vkCmdPushConstants(
 				commandBuffers[currentImage],
 				pipelineLayout,
 				VK_SHADER_STAGE_VERTEX_BIT,		// Stage to push constants to
 				0,								// Offset of push constants to update
-				sizeof(glm::mat4),				// Size of data being pushed
-				&meshList[j].getModel());		// Actual data being pushed (can be array)
+				sizeof(glm::mat4),					// Size of data being pushed
+				&thisModel.getModel());			// Actual data being pushed (can be array)
 
-			std::array<VkDescriptorSet, 2> descriptorSetGroup = {descriptorSets[currentImage],
-	samplerDescriptorSets[meshList[j].getTexId()]};
+			for (size_t k = 0; k < thisModel.getMeshCount(); k++) {
 
-			// Bind Descriptor Sets
-			vkCmdBindDescriptorSets(commandBuffers[currentImage], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-				0, static_cast<uint32_t>(descriptorSetGroup.size()), descriptorSetGroup.data(), 0, nullptr);
+				VkBuffer vertexBuffers [] = {thisModel.getMesh(k)->getVertexBuffer()};					// Buffers to bind
+				VkDeviceSize offsets [] = {0};												// Offsets into buffers being bound
+				vkCmdBindVertexBuffers(commandBuffers[currentImage], 0, 1, vertexBuffers, offsets);	// Command to bind vertex buffer before drawing with them
 
-			
-			// Execute pipeline
-			vkCmdDrawIndexed(commandBuffers[currentImage], meshList[j].getIndexCount(), 1, 0, 0, 0);
+				// Bind mesh index buffer, with 0 offset and using the uint32 type
+				vkCmdBindIndexBuffer(commandBuffers[currentImage], thisModel.getMesh(k)->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+				// Dynamic Offset Amount
+				// uint32_t dynamicOffset = static_cast<uint32_t>(modelUniformAlignment) * j;
+
+				// "Push" constants to given shader stage directly (no buffer)
+
+
+				std::array<VkDescriptorSet, 2> descriptorSetGroup = {descriptorSets[currentImage],
+					samplerDescriptorSets[thisModel.getMesh(k)->getTexId()]};
+
+				// Bind Descriptor Sets
+				vkCmdBindDescriptorSets(commandBuffers[currentImage], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+					0, static_cast<uint32_t>(descriptorSetGroup.size()), descriptorSetGroup.data(), 0, nullptr);
+
+				// Execute pipeline
+				vkCmdDrawIndexed(commandBuffers[currentImage], thisModel.getMesh(k)->getIndexCount(), 1, 0, 0, 0);
+			}
 		}
 		
 		// End Render Pass
@@ -1570,4 +1584,42 @@ int Render::createTextureDescriptor(VkImageView textureImage) {
 
 	// Return descriptor set location
 	return samplerDescriptorSets.size() - 1;
+}
+
+
+int Render::createMeshModel(std::string modelFile) {
+	// Import model "scene"
+	Assimp::Importer importer;
+	const aiScene* scene = importer.ReadFile(modelFile, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices);
+	if (!scene) {
+		throw std::runtime_error("Failed to load model! (" + modelFile + ")");
+	}
+
+	// Get vector of all materials with 1:1 ID placement
+	std::vector<std::string> textureNames = MeshModel::LoadMaterials(scene);
+
+	// Conversion from the materials list IDs to our Descriptor Array IDs
+	std::vector<int> matToTex(textureNames.size());
+
+	// Loop over textureNames and create textures for them
+	for (size_t i = 0; i < textureNames.size(); i++) {
+		// If material had no texture, set '0' to indicate no texture, texture 0 will be reserved for a default texture
+		if (textureNames[i].empty()) {
+			matToTex[i] = 0;
+		}
+		else {
+			// Otherwise, create texture and set value to index of new texture
+			matToTex[i] = createTexture(textureNames[i]);
+		}
+	}
+
+	// Load in all our meshes
+	std::vector<Mesh> modelMeshes = MeshModel::LoadNode(mainDevice.physicalDevice, mainDevice.logicalDevice, graphicsQueue, graphicsCommandPool,
+		scene->mRootNode, scene, matToTex);
+
+	// Create mesh model and add to list
+	MeshModel meshModel = MeshModel(modelMeshes);
+	meshList.push_back(meshModel);
+
+	return meshList.size() - 1;
 }

@@ -16,6 +16,9 @@
     <ClCompile Include="Mesh.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
+    <ClCompile Include="MeshModel.cpp">
+      <Filter>Исходные файлы</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="render.h">
@@ -28,6 +31,9 @@
       <Filter>Исходные файлы</Filter>
     </ClInclude>
     <ClInclude Include="stb_image.h">
+      <Filter>Исходные файлы</Filter>
+    </ClInclude>
+    <ClInclude Include="MeshModel.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
   </ItemGroup>

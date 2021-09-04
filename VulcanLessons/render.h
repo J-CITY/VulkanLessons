@@ -11,10 +11,12 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "MeshModel.h"
 
-const int MAX_FRAME_DRAWS = 3;
 
-const int MAX_OBJECTS = 2;
+const int MAX_FRAME_DRAWS = 30;
+
+const int MAX_OBJECTS = 20;
 
 namespace VKRENDER {
 
@@ -70,6 +72,7 @@ namespace VKRENDER {
 		Render(GLFWwindow* win);
 		~Render();
 		void draw();
+		int createMeshModel(std::string modelFile);
 		void updateModel(int modelId, glm::mat4 newModel);
 	private:
 		struct Device {
@@ -83,7 +86,7 @@ namespace VKRENDER {
 		} uboViewProjection;
 
 		// Scene Objects
-		std::vector<Mesh> meshList;
+		std::vector<MeshModel> meshList;
 
 		Device mainDevice;
 		
