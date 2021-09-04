@@ -8,6 +8,9 @@
 
 #include "Mesh.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 const int MAX_FRAME_DRAWS = 3;
 
 namespace VKRENDER {
@@ -64,12 +67,17 @@ namespace VKRENDER {
 		Render(GLFWwindow* win);
 		~Render();
 		void draw();
+		void updateModel(int modelId, glm::mat4 newModel);
 	private:
 		struct Device {
 			VkPhysicalDevice physicalDevice;
 			VkDevice logicalDevice;
 		};
 
+		struct UboViewProjection {
+			glm::mat4 projection;
+			glm::mat4 view;
+		} uboViewProjection;
 
 		// Scene Objects
 		std::vector<Mesh> meshList;
@@ -88,6 +96,19 @@ namespace VKRENDER {
 		std::vector<SwapchainImage> swapChainImages;
 		std::vector<VkFramebuffer> swapChainFramebuffers;
 		std::vector<VkCommandBuffer> commandBuffers;
+
+		// - Descriptors
+		VkDescriptorSetLayout descriptorSetLayout;
+		VkPushConstantRange pushConstantRange;
+
+		VkDescriptorPool descriptorPool;
+		std::vector<VkDescriptorSet> descriptorSets;
+
+		std::vector<VkBuffer> vpUniformBuffer;
+		std::vector<VkDeviceMemory> vpUniformBufferMemory;
+
+		std::vector<VkBuffer> modelDUniformBuffer;
+		std::vector<VkDeviceMemory> modelDUniformBufferMemory;
 		
 		// - Pipeline
 		VkPipeline graphicsPipeline;
@@ -121,12 +142,21 @@ namespace VKRENDER {
 		void createSurface();
 		void createSwapChain();
 		void createRenderPass();
+		void createDescriptorSetLayout();
+		void createPushConstantRange();
 		void createGraphicsPipeline();
 		void createFramebuffers();
 		void createCommandPool();
 		void createCommandBuffers();
 		void createSynchronisation();
-		void recordCommands();
+
+		void createUniformBuffers();
+		void createDescriptorPool();
+		void createDescriptorSets();
+
+		void updateUniformBuffers(uint32_t imageIndex);
+		
+		void recordCommands(uint32_t currentImage);
 
 		// -- Getter Functions
 		QueueFamilyIndices getQueueFamilies(VkPhysicalDevice device);
