@@ -109,11 +109,16 @@ namespace VKRENDER {
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSetLayout samplerSetLayout;
 		VkPushConstantRange pushConstantRange;
+		VkDescriptorSetLayout inputSetLayout;
 
 		VkDescriptorPool descriptorPool;
 		VkDescriptorPool samplerDescriptorPool;
+		VkDescriptorPool inputDescriptorPool;
+		
 		std::vector<VkDescriptorSet> descriptorSets;
 		std::vector<VkDescriptorSet> samplerDescriptorSets;
+
+		std::vector<VkDescriptorSet> inputDescriptorSets;
 
 		std::vector<VkBuffer> vpUniformBuffer;
 		std::vector<VkDeviceMemory> vpUniformBufferMemory;
@@ -129,6 +134,10 @@ namespace VKRENDER {
 		// - Pipeline
 		VkPipeline graphicsPipeline;
 		VkPipelineLayout pipelineLayout;
+		// Second shader
+		VkPipeline secondPipeline;
+		VkPipelineLayout secondPipelineLayout;
+		
 		VkRenderPass renderPass;
 
 		// - Pools
@@ -145,9 +154,13 @@ namespace VKRENDER {
 		std::vector<VkSemaphore> renderFinished;
 		std::vector<VkFence> drawFences;
 
-		VkImage depthBufferImage;
-		VkDeviceMemory depthBufferImageMemory;
-		VkImageView depthBufferImageView;
+		std::vector<VkImage> colourBufferImage;
+		std::vector<VkDeviceMemory> colourBufferImageMemory;
+		std::vector<VkImageView> colourBufferImageView;
+
+		std::vector<VkImage> depthBufferImage;
+		std::vector<VkDeviceMemory> depthBufferImageMemory;
+		std::vector<VkImageView> depthBufferImageView;
 
 		void init();
 		void createInstance();
@@ -165,6 +178,7 @@ namespace VKRENDER {
 		void createDescriptorSetLayout();
 		void createPushConstantRange();
 		void createGraphicsPipeline();
+		void createColourBufferImage();
 		void createFramebuffers();
 		void createCommandPool();
 		void createCommandBuffers();
@@ -175,9 +189,12 @@ namespace VKRENDER {
 		void createDescriptorPool();
 		void createDescriptorSets();
 
+		void createInputDescriptorSets();
+		
 		void updateUniformBuffers(uint32_t imageIndex);
 
 		void createDepthBufferImage();
+		
 		
 		void recordCommands(uint32_t currentImage);
 

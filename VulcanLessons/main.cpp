@@ -13,7 +13,7 @@
 GLFWwindow* win = nullptr;
 std::unique_ptr<VKRENDER::Render> render;
 
-void init(std::string title="TEST", int w=800, int h=600) {
+void init(std::string title="TEST", int w=1366, int h=768) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
