@@ -48,7 +48,7 @@ int main() {
 
 		glm::mat4 testMat = glm::rotate(glm::mat4(1.0f), glm::radians(angle), glm::vec3(0.0f, 1.0f, 0.0f));
 		//testMat = glm::rotate(testMat, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-		testMat = glm::scale(testMat, glm::vec3(0.01f, 0.01f, 0.01f));
+		testMat = glm::scale(testMat, glm::vec3(0.03f, 0.03f, 0.03f));
 		render->updateModel(modelId, testMat);
 
 		render->draw();
