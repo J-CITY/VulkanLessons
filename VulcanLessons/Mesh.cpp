@@ -8,17 +8,23 @@ Mesh::Mesh() = default;
 
 Mesh::Mesh(VkPhysicalDevice newPhysicalDevice, VkDevice newDevice, 
 	VkQueue transferQueue, VkCommandPool transferCommandPool, 
-	std::vector<Vertex>* vertices, std::vector<uint32_t> * indices)
+	std::vector<Vertex>* vertices, std::vector<uint32_t> * indices, int tid)
 {
 	vertexCount = vertices->size();
 	indexCount = indices->size();
 	physicalDevice = newPhysicalDevice;
 	device = newDevice;
+	texId = tid;
 	createVertexBuffer(transferQueue, transferCommandPool, vertices);
 	createIndexBuffer(transferQueue, transferCommandPool, indices);
 
 	model = glm::mat4(1.0f);
 }
+
+int Mesh::getTexId() {
+	return texId;
+}
+
 
 void Mesh::setModel(glm::mat4 newModel) {
 	model = newModel;

@@ -1,7 +1,5 @@
 #include "render.h"
 
-
-
 #include <array>
 #include <iostream>
 #include <ostream>
@@ -9,6 +7,26 @@
 
 #include "Mesh.h"
 #include "Utils.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+stbi_uc* loadTextureFile(std::string fileName, int* width, int* height, VkDeviceSize* imageSize) {
+	// Number of channels image uses
+	int channels;
+
+	// Load pixel data for image
+	std::string fileLoc = "Textures/" + fileName;
+	stbi_uc* image = stbi_load(fileLoc.c_str(), width, height, &channels, STBI_rgb_alpha);
+
+	if (!image) {
+		throw std::runtime_error("Failed to load a Texture file! (" + fileName + ")");
+	}
+
+	// Calculate image size using given and known data
+	*imageSize = *width * *height * 4;
+
+	return image;
+}
 
 using namespace VKRENDER;
 
@@ -23,19 +41,31 @@ Render::~Render() {
 void Render::init() {
 	try {
 		createInstance();
+		
 		createSurface();
 		getPhysicalDevice();
 		createLogicalDevice();
-		createSwapChain();
 
+		createSwapChain();
 		createRenderPass();
 		createDescriptorSetLayout();
+
 		createPushConstantRange();
 		createGraphicsPipeline();
 
+		createDepthBufferImage();
 		createFramebuffers();
-		createCommandPool();
 
+		createCommandPool();
+		createCommandBuffers();
+
+		createTextureSampler();
+		createUniformBuffers();
+
+		createDescriptorPool();
+		createDescriptorSets();
+
+		createSynchronisation();
 		uboViewProjection.projection = glm::perspective(glm::radians(45.0f), (float)swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 100.0f);
 		uboViewProjection.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
@@ -45,17 +75,17 @@ void Render::init() {
 		// Create a mesh
 		// Vertex Data
 		std::vector<Vertex> meshVertices = {
-			{ { -0.4, 0.4, 0.0 },{ 1.0f, 0.0f, 0.0f } },	// 0
-			{ { -0.4, -0.4, 0.0 },{ 0.0f, 1.0f, 0.0f } },	    // 1
-			{ { 0.4, -0.4, 0.0 },{ 0.0f, 0.0f, 1.0f } },    // 2
-			{ { 0.4, 0.4, 0.0 },{ 1.0f, 1.0f, 0.0f } },   // 3
+			{ { -0.4, 0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 1.0f, 1.0f } },	// 0
+		{ { -0.4, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 1.0f, 0.0f } },	    // 1
+		{ { 0.4, -0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f } },    // 2
+		{ { 0.4, 0.4, 0.0 },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 1.0f } },   // 3
 		};
 
 		std::vector<Vertex> meshVertices2 = {
-			{ { -0.25, 0.6, 0.0 },{ 1.0f, 0.0f, 0.0f } },	// 0
-			{ { -0.25, -0.6, 0.0 },{ 0.0f, 1.0f, 0.0f } },	    // 1
-			{ { 0.25, -0.6, 0.0 },{ 0.0f, 0.0f, 1.0f } },    // 2
-			{ { 0.25, 0.6, 0.0 },{ 1.0f, 1.0f, 0.0f } },   // 3
+			{ { -0.25, 0.6, 0.0 },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 1.0f } },	// 0
+		{ { -0.25, -0.6, 0.0 },{ 0.0f, 0.0f, 1.0f },{ 1.0f, 0.0f } },	    // 1
+		{ { 0.25, -0.6, 0.0 },{ 0.0f, 0.0f, 1.0f },{ 0.0f, 0.0f } },    // 2
+		{ { 0.25, 0.6, 0.0 },{ 0.0f, 0.0f, 1.0f },{ 0.0f, 1.0f } },   // 3
 		};
 
 
@@ -67,21 +97,15 @@ void Render::init() {
 
 		Mesh firstMesh = Mesh(mainDevice.physicalDevice, mainDevice.logicalDevice,
 			graphicsQueue, graphicsCommandPool,
-			&meshVertices, &meshIndices);
+			&meshVertices, &meshIndices,
+			createTexture("giraffe.jpg"));
 		Mesh secondMesh = Mesh(mainDevice.physicalDevice, mainDevice.logicalDevice,
 			graphicsQueue, graphicsCommandPool,
-			&meshVertices2, &meshIndices);
+			&meshVertices2, &meshIndices,
+			createTexture("panda.jpg"));
 
 		meshList.push_back(firstMesh);
 		meshList.push_back(secondMesh);
-
-		
-		createCommandBuffers();
-		createUniformBuffers();
-		createDescriptorPool();
-		createDescriptorSets();
-		//recordCommands();
-		createSynchronisation();
 	}
 	catch (const std::runtime_error& e) {
 		std::cout << "ERROR: " << e.what() << std::endl;
@@ -171,7 +195,21 @@ void Render::clean() {
 	// Wait until no actions being run on device before destroying
 	vkDeviceWaitIdle(mainDevice.logicalDevice);
 
-	//_aligned_free(modelTransferSpace);
+	vkDestroyDescriptorPool(mainDevice.logicalDevice, samplerDescriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(mainDevice.logicalDevice, samplerSetLayout, nullptr);
+
+	vkDestroySampler(mainDevice.logicalDevice, textureSampler, nullptr);
+	
+	for (size_t i = 0; i < textureImages.size(); i++) {
+		vkDestroyImageView(mainDevice.logicalDevice, textureImageViews[i], nullptr);
+		vkDestroyImage(mainDevice.logicalDevice, textureImages[i], nullptr);
+		vkFreeMemory(mainDevice.logicalDevice, textureImageMemory[i], nullptr);
+	}
+
+	
+	vkDestroyImageView(mainDevice.logicalDevice, depthBufferImageView, nullptr);
+	vkDestroyImage(mainDevice.logicalDevice, depthBufferImage, nullptr);
+	vkFreeMemory(mainDevice.logicalDevice, depthBufferImageMemory, nullptr);
 
 	vkDestroyDescriptorPool(mainDevice.logicalDevice, descriptorPool, nullptr);
 	vkDestroyDescriptorSetLayout(mainDevice.logicalDevice, descriptorSetLayout, nullptr);
@@ -238,6 +276,8 @@ bool Render::checkDeviceSuitable(VkPhysicalDevice device) {
 	VkPhysicalDeviceFeatures deviceFeatures;
 	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 	*/
+	VkPhysicalDeviceFeatures deviceFeatures;
+	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
 	QueueFamilyIndices indices = getQueueFamilies(device);
 
@@ -249,7 +289,7 @@ bool Render::checkDeviceSuitable(VkPhysicalDevice device) {
 		swapChainValid = !swapChainDetails.presentationModes.empty() && !swapChainDetails.formats.empty();
 	}
 
-	return indices.isValid() && extensionsSupported && swapChainValid;
+	return indices.isValid() && extensionsSupported && swapChainValid && deviceFeatures.samplerAnisotropy;
 }
 
 bool Render::checkDeviceExtensionSupport(VkPhysicalDevice device) {
@@ -352,6 +392,7 @@ void Render::createLogicalDevice() {
 
 	// Physical Device Features the Logical Device will be using
 	VkPhysicalDeviceFeatures deviceFeatures = {};
+	deviceFeatures.samplerAnisotropy = VK_TRUE;		// Enable Anisotropy
 
 	deviceCreateInfo.pEnabledFeatures = &deviceFeatures;			// Physical Device features Logical Device will use
 
@@ -464,6 +505,7 @@ void Render::createSwapChain() {
 
 
 void Render::createDescriptorSetLayout() {
+	// UNIFORM VALUES DESCRIPTOR SET LAYOUT
 	// UboViewProjection Binding Info
 	VkDescriptorSetLayoutBinding vpLayoutBinding = {};
 	vpLayoutBinding.binding = 0;											// Binding point in shader (designated by binding number in shader)
@@ -471,6 +513,14 @@ void Render::createDescriptorSetLayout() {
 	vpLayoutBinding.descriptorCount = 1;									// Number of descriptors for binding
 	vpLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;				// Shader stage to bind to
 	vpLayoutBinding.pImmutableSamplers = nullptr;							// For Texture: Can make sampler data unchangeable (immutable) by specifying in layout
+
+	// Model Binding Info
+	/*VkDescriptorSetLayoutBinding modelLayoutBinding = {};
+	modelLayoutBinding.binding = 1;
+	modelLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	modelLayoutBinding.descriptorCount = 1;
+	modelLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	modelLayoutBinding.pImmutableSamplers = nullptr;*/
 
 	std::vector<VkDescriptorSetLayoutBinding> layoutBindings = {vpLayoutBinding};
 
@@ -482,6 +532,27 @@ void Render::createDescriptorSetLayout() {
 
 	// Create Descriptor Set Layout
 	VkResult result = vkCreateDescriptorSetLayout(mainDevice.logicalDevice, &layoutCreateInfo, nullptr, &descriptorSetLayout);
+	if (result != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create a Descriptor Set Layout!");
+	}
+
+	// CREATE TEXTURE SAMPLER DESCRIPTOR SET LAYOUT
+	// Texture binding info
+	VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
+	samplerLayoutBinding.binding = 0;
+	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerLayoutBinding.descriptorCount = 1;
+	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	samplerLayoutBinding.pImmutableSamplers = nullptr;
+
+	// Create a Descriptor Set Layout with given bindings for texture
+	VkDescriptorSetLayoutCreateInfo textureLayoutCreateInfo = {};
+	textureLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	textureLayoutCreateInfo.bindingCount = 1;
+	textureLayoutCreateInfo.pBindings = &samplerLayoutBinding;
+
+	// Create Descriptor Set Layout
+	result = vkCreateDescriptorSetLayout(mainDevice.logicalDevice, &textureLayoutCreateInfo, nullptr, &samplerSetLayout);
 	if (result != VK_SUCCESS) {
 		throw std::runtime_error("Failed to create a Descriptor Set Layout!");
 	}
@@ -613,6 +684,7 @@ VkImageView Render::createImageView(VkImage image, VkFormat format, VkImageAspec
 
 
 void Render::createRenderPass() {
+	// ATTACHMENTS
 	// Colour attachment of render pass
 	VkAttachmentDescription colourAttachment = {};
 	colourAttachment.format = swapChainImageFormat;						// Format to use for attachment
@@ -627,16 +699,38 @@ void Render::createRenderPass() {
 	colourAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;			// Image data layout before render pass starts
 	colourAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;		// Image data layout after render pass (to change to)
 
+
+	// Depth attachment of render pass
+	VkAttachmentDescription depthAttachment = {};
+	depthAttachment.format = chooseSupportedFormat(
+		{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT},
+		VK_IMAGE_TILING_OPTIMAL,
+		VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	// REFERENCES
 	// Attachment reference uses an attachment index that refers to index in the attachment list passed to renderPassCreateInfo
 	VkAttachmentReference colourAttachmentReference = {};
 	colourAttachmentReference.attachment = 0;
 	colourAttachmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	// Depth Attachment Reference
+	VkAttachmentReference depthAttachmentReference = {};
+	depthAttachmentReference.attachment = 1;
+	depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	// Information about a particular subpass the Render Pass is using
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;		// Pipeline type subpass is to be bound to
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colourAttachmentReference;
+	subpass.pDepthStencilAttachment = &depthAttachmentReference;
 
 	// Need to determine when layout transitions occur using subpass dependencies
 	std::array<VkSubpassDependency, 2> subpassDependencies;
@@ -664,11 +758,13 @@ void Render::createRenderPass() {
 	subpassDependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 	subpassDependencies[1].dependencyFlags = 0;
 
+	std::array<VkAttachmentDescription, 2> renderPassAttachments = {colourAttachment, depthAttachment};
+
 	// Create info for Render Pass
 	VkRenderPassCreateInfo renderPassCreateInfo = {};
 	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassCreateInfo.attachmentCount = 1;
-	renderPassCreateInfo.pAttachments = &colourAttachment;
+	renderPassCreateInfo.attachmentCount = static_cast<uint32_t>(renderPassAttachments.size());
+	renderPassCreateInfo.pAttachments = renderPassAttachments.data();
 	renderPassCreateInfo.subpassCount = 1;
 	renderPassCreateInfo.pSubpasses = &subpass;
 	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
@@ -717,7 +813,7 @@ void Render::createGraphicsPipeline() {
 																	// VK_VERTEX_INPUT_RATE_INSTANCE	: Move to a vertex for the next instance
 
 	// How the data for an attribute is defined within a vertex
-	std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions;
+	std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions;
 
 	// Position Attribute
 	attributeDescriptions[0].binding = 0;							// Which binding the data is at (should be same as above)
@@ -731,6 +827,12 @@ void Render::createGraphicsPipeline() {
 	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 	attributeDescriptions[1].offset = offsetof(Vertex, col);
 
+	// Texture Attribute
+	attributeDescriptions[2].binding = 0;
+	attributeDescriptions[2].location = 2;
+	attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+	attributeDescriptions[2].offset = offsetof(Vertex, tex);
+	
 	// -- VERTEX INPUT --
 	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo = {};
 	vertexInputCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -832,10 +934,12 @@ void Render::createGraphicsPipeline() {
 
 
 	// -- PIPELINE LAYOUT --
+	std::array<VkDescriptorSetLayout, 2> descriptorSetLayouts = {descriptorSetLayout, samplerSetLayout};
+
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutCreateInfo.setLayoutCount = 1;
-	pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
+	pipelineLayoutCreateInfo.setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size());
+	pipelineLayoutCreateInfo.pSetLayouts = descriptorSetLayouts.data();
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -847,7 +951,13 @@ void Render::createGraphicsPipeline() {
 
 
 	// -- DEPTH STENCIL TESTING --
-	// TODO: Set up depth stencil testing
+	VkPipelineDepthStencilStateCreateInfo depthStencilCreateInfo = {};
+	depthStencilCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencilCreateInfo.depthTestEnable = VK_TRUE;				// Enable checking depth to determine fragment write
+	depthStencilCreateInfo.depthWriteEnable = VK_TRUE;				// Enable writing to depth buffer (to replace old values)
+	depthStencilCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;		// Comparison operation that allows an overwrite (is in front)
+	depthStencilCreateInfo.depthBoundsTestEnable = VK_FALSE;		// Depth Bounds Test: Does the depth value exist between two bounds
+	depthStencilCreateInfo.stencilTestEnable = VK_FALSE;			// Enable Stencil Test
 
 
 	// -- GRAPHICS PIPELINE CREATION --
@@ -862,7 +972,7 @@ void Render::createGraphicsPipeline() {
 	pipelineCreateInfo.pRasterizationState = &rasterizerCreateInfo;
 	pipelineCreateInfo.pMultisampleState = &multisamplingCreateInfo;
 	pipelineCreateInfo.pColorBlendState = &colourBlendingCreateInfo;
-	pipelineCreateInfo.pDepthStencilState = nullptr;
+	pipelineCreateInfo.pDepthStencilState = &depthStencilCreateInfo;
 	pipelineCreateInfo.layout = pipelineLayout;							// Pipeline Layout pipeline should use
 	pipelineCreateInfo.renderPass = renderPass;							// Render pass description the pipeline is compatible with
 	pipelineCreateInfo.subpass = 0;										// Subpass of render pass to use with pipeline
@@ -962,8 +1072,9 @@ void Render::createFramebuffers() {
 
 	// Create a framebuffer for each swap chain image
 	for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
-		std::array<VkImageView, 1> attachments = {
-			swapChainImages[i].imageView
+		std::array<VkImageView, 2> attachments = {
+			swapChainImages[i].imageView,
+			depthBufferImageView
 		};
 
 		VkFramebufferCreateInfo framebufferCreateInfo = {};
@@ -1051,11 +1162,13 @@ void Render::recordCommands(uint32_t currentImage) {
 	renderPassBeginInfo.renderPass = renderPass;							// Render Pass to begin
 	renderPassBeginInfo.renderArea.offset = {0, 0};						// Start point of render pass in pixels
 	renderPassBeginInfo.renderArea.extent = swapChainExtent;				// Size of region to run render pass on (starting at offset)
-	VkClearValue clearValues [] = {
-		{0.6f, 0.65f, 0.4, 1.0f}
-	};
-	renderPassBeginInfo.pClearValues = clearValues;							// List of clear values (TODO: Depth Attachment Clear Value)
-	renderPassBeginInfo.clearValueCount = 1;
+	
+	std::array<VkClearValue, 2> clearValues = {};
+	clearValues[0].color = {0.6f, 0.65f, 0.4f, 1.0f};
+	clearValues[1].depthStencil.depth = 1.0f;
+
+	renderPassBeginInfo.pClearValues = clearValues.data();					// List of clear values
+	renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 
 	//for (size_t i = 0; i < commandBuffers.size(); i++) {
 		renderPassBeginInfo.framebuffer = swapChainFramebuffers[currentImage];
@@ -1092,9 +1205,12 @@ void Render::recordCommands(uint32_t currentImage) {
 				sizeof(glm::mat4),				// Size of data being pushed
 				&meshList[j].getModel());		// Actual data being pushed (can be array)
 
+			std::array<VkDescriptorSet, 2> descriptorSetGroup = {descriptorSets[currentImage],
+	samplerDescriptorSets[meshList[j].getTexId()]};
+
 			// Bind Descriptor Sets
 			vkCmdBindDescriptorSets(commandBuffers[currentImage], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-				0, 1, &descriptorSets[currentImage], 0, nullptr);
+				0, static_cast<uint32_t>(descriptorSetGroup.size()), descriptorSetGroup.data(), 0, nullptr);
 
 			
 			// Execute pipeline
@@ -1113,12 +1229,36 @@ void Render::recordCommands(uint32_t currentImage) {
 }
 
 void Render::updateModel(int modelId, glm::mat4 newModel) {
-	if (modelId >= meshList.size()) {
+	if (static_cast<unsigned>(modelId) >= meshList.size()) {
 		return;
 	}
 	meshList[modelId].setModel(newModel);
 }
 
+
+void Render::createTextureSampler() {
+	// Sampler Creation Info
+	VkSamplerCreateInfo samplerCreateInfo = {};
+	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;						// How to render when image is magnified on screen
+	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;						// How to render when image is minified on screen
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;	// How to handle texture wrap in U (x) direction
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;	// How to handle texture wrap in V (y) direction
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;	// How to handle texture wrap in W (z) direction
+	samplerCreateInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;	// Border beyond texture (only workds for border clamp)
+	samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;				// Whether coords should be normalized (between 0 and 1)
+	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;		// Mipmap interpolation mode
+	samplerCreateInfo.mipLodBias = 0.0f;								// Level of Details bias for mip level
+	samplerCreateInfo.minLod = 0.0f;									// Minimum Level of Detail to pick mip level
+	samplerCreateInfo.maxLod = 0.0f;									// Maximum Level of Detail to pick mip level
+	samplerCreateInfo.anisotropyEnable = VK_TRUE;						// Enable Anisotropy
+	samplerCreateInfo.maxAnisotropy = 16;								// Anisotropy sample level
+
+	VkResult result = vkCreateSampler(mainDevice.logicalDevice, &samplerCreateInfo, nullptr, &textureSampler);
+	if (result != VK_SUCCESS) {
+		throw std::runtime_error("Filed to create a Texture Sampler!");
+	}
+}
 
 void Render::createUniformBuffers() {
 	// ViewProjection buffer size
@@ -1136,11 +1276,18 @@ VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &vpU
 }
 
 void Render::createDescriptorPool() {
+
+	// CREATE UNIFORM DESCRIPTOR POOL
 	// Type of descriptors + how many DESCRIPTORS, not Descriptor Sets (combined makes the pool size)
 	// ViewProjection Pool
 	VkDescriptorPoolSize vpPoolSize = {};
 	vpPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	vpPoolSize.descriptorCount = static_cast<uint32_t>(vpUniformBuffer.size());
+
+	// Model Pool (DYNAMIC)
+	/*VkDescriptorPoolSize modelPoolSize = {};
+	modelPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	modelPoolSize.descriptorCount = static_cast<uint32_t>(modelDUniformBuffer.size());*/
 
 	// List of pool sizes
 	std::vector<VkDescriptorPoolSize> descriptorPoolSizes = {vpPoolSize};
@@ -1154,6 +1301,23 @@ void Render::createDescriptorPool() {
 
 	// Create Descriptor Pool
 	VkResult result = vkCreateDescriptorPool(mainDevice.logicalDevice, &poolCreateInfo, nullptr, &descriptorPool);
+	if (result != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create a Descriptor Pool!");
+	}
+
+	// CREATE SAMPLER DESCRIPTOR POOL
+	// Texture sampler pool
+	VkDescriptorPoolSize samplerPoolSize = {};
+	samplerPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerPoolSize.descriptorCount = MAX_OBJECTS;
+
+	VkDescriptorPoolCreateInfo samplerPoolCreateInfo = {};
+	samplerPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	samplerPoolCreateInfo.maxSets = MAX_OBJECTS;
+	samplerPoolCreateInfo.poolSizeCount = 1;
+	samplerPoolCreateInfo.pPoolSizes = &samplerPoolSize;
+
+	result = vkCreateDescriptorPool(mainDevice.logicalDevice, &samplerPoolCreateInfo, nullptr, &samplerDescriptorPool);
 	if (result != VK_SUCCESS) {
 		throw std::runtime_error("Failed to create a Descriptor Pool!");
 	}
@@ -1212,4 +1376,198 @@ void Render::updateUniformBuffers(uint32_t imageIndex) {
 	vkMapMemory(mainDevice.logicalDevice, vpUniformBufferMemory[imageIndex], 0, sizeof(UboViewProjection), 0, &data);
 	memcpy(data, &uboViewProjection, sizeof(UboViewProjection));
 	vkUnmapMemory(mainDevice.logicalDevice, vpUniformBufferMemory[imageIndex]);
+}
+
+void Render::createDepthBufferImage() {
+	// Get supported format for depth buffer
+	VkFormat depthFormat = chooseSupportedFormat(
+		{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT},
+		VK_IMAGE_TILING_OPTIMAL,
+		VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+
+	// Create Depth Buffer Image
+	depthBufferImage = createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &depthBufferImageMemory);
+
+	// Create Depth Buffer Image View
+	depthBufferImageView = createImageView(depthBufferImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+}
+
+VkFormat Render::chooseSupportedFormat(const std::vector<VkFormat>& formats, VkImageTiling tiling, VkFormatFeatureFlags featureFlags) {
+	// Loop through options and find compatible one
+	for (VkFormat format : formats) {
+		// Get properties for give format on this device
+		VkFormatProperties properties;
+		vkGetPhysicalDeviceFormatProperties(mainDevice.physicalDevice, format, &properties);
+
+		// Depending on tiling choice, need to check for different bit flag
+		if (tiling == VK_IMAGE_TILING_LINEAR && (properties.linearTilingFeatures & featureFlags) == featureFlags) {
+			return format;
+		}
+		else if (tiling == VK_IMAGE_TILING_OPTIMAL && (properties.optimalTilingFeatures & featureFlags) == featureFlags) {
+			return format;
+		}
+	}
+
+	throw std::runtime_error("Failed to find a matching format!");
+}
+
+
+VkImage Render::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags useFlags, VkMemoryPropertyFlags propFlags, VkDeviceMemory* imageMemory) {
+	// CREATE IMAGE
+	// Image Creation Info
+	VkImageCreateInfo imageCreateInfo = {};
+	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;						// Type of image (1D, 2D, or 3D)
+	imageCreateInfo.extent.width = width;								// Width of image extent
+	imageCreateInfo.extent.height = height;								// Height of image extent
+	imageCreateInfo.extent.depth = 1;									// Depth of image (just 1, no 3D aspect)
+	imageCreateInfo.mipLevels = 1;										// Number of mipmap levels
+	imageCreateInfo.arrayLayers = 1;									// Number of levels in image array
+	imageCreateInfo.format = format;									// Format type of image
+	imageCreateInfo.tiling = tiling;									// How image data should be "tiled" (arranged for optimal reading)
+	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;			// Layout of image data on creation
+	imageCreateInfo.usage = useFlags;									// Bit flags defining what image will be used for
+	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;					// Number of samples for multi-sampling
+	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;			// Whether image can be shared between queues
+
+	// Create image
+	VkImage image;
+	VkResult result = vkCreateImage(mainDevice.logicalDevice, &imageCreateInfo, nullptr, &image);
+	if (result != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create an Image!");
+	}
+
+	// CREATE MEMORY FOR IMAGE
+
+	// Get memory requirements for a type of image
+	VkMemoryRequirements memoryRequirements;
+	vkGetImageMemoryRequirements(mainDevice.logicalDevice, image, &memoryRequirements);
+
+	// Allocate memory using image requirements and user defined properties
+	VkMemoryAllocateInfo memoryAllocInfo = {};
+	memoryAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memoryAllocInfo.allocationSize = memoryRequirements.size;
+	memoryAllocInfo.memoryTypeIndex = UTILS::findMemoryTypeIndex(mainDevice.physicalDevice, memoryRequirements.memoryTypeBits, propFlags);
+
+	result = vkAllocateMemory(mainDevice.logicalDevice, &memoryAllocInfo, nullptr, imageMemory);
+	if (result != VK_SUCCESS) {
+		throw std::runtime_error("Failed to allocate memory for image!");
+	}
+
+	// Connect memory to image
+	vkBindImageMemory(mainDevice.logicalDevice, image, *imageMemory, 0);
+
+	return image;
+}
+
+
+int Render::createTextureImage(std::string fileName) {
+	// Load image file
+	int width, height;
+	VkDeviceSize imageSize;
+	stbi_uc* imageData = loadTextureFile(fileName, &width, &height, &imageSize);
+
+	// Create staging buffer to hold loaded data, ready to copy to device
+	VkBuffer imageStagingBuffer;
+	VkDeviceMemory imageStagingBufferMemory;
+	UTILS::createBuffer(mainDevice.physicalDevice, mainDevice.logicalDevice, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	                    &imageStagingBuffer, &imageStagingBufferMemory);
+
+	// Copy image data to staging buffer
+	void* data;
+	vkMapMemory(mainDevice.logicalDevice, imageStagingBufferMemory, 0, imageSize, 0, &data);
+	memcpy(data, imageData, static_cast<size_t>(imageSize));
+	vkUnmapMemory(mainDevice.logicalDevice, imageStagingBufferMemory);
+
+	// Free original image data
+	stbi_image_free(imageData);
+
+	// Create image to hold final texture
+	VkImage texImage;
+	VkDeviceMemory texImageMemory;
+	texImage = createImage(width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+		VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &texImageMemory);
+
+
+	// COPY DATA TO IMAGE
+	// Transition image to be DST for copy operation
+	UTILS::transitionImageLayout(mainDevice.logicalDevice, graphicsQueue, graphicsCommandPool,
+	                             texImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+	// Copy image data
+	UTILS::copyImageBuffer(mainDevice.logicalDevice, graphicsQueue, graphicsCommandPool, imageStagingBuffer, texImage, width, height);
+
+	// Transition image to be shader readable for shader usage
+	UTILS::transitionImageLayout(mainDevice.logicalDevice, graphicsQueue, graphicsCommandPool,
+	                             texImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	// Add texture data to vector for reference
+	textureImages.push_back(texImage);
+	textureImageMemory.push_back(texImageMemory);
+
+	// Destroy staging buffers
+	vkDestroyBuffer(mainDevice.logicalDevice, imageStagingBuffer, nullptr);
+	vkFreeMemory(mainDevice.logicalDevice, imageStagingBufferMemory, nullptr);
+
+	// Return index of new texture image
+	return textureImages.size() - 1;
+}
+
+int Render::createTexture(std::string fileName) {
+	// Create Texture Image and get its location in array
+	int textureImageLoc = createTextureImage(fileName);
+
+	// Create Image View and add to list
+	VkImageView imageView = createImageView(textureImages[textureImageLoc], VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
+	textureImageViews.push_back(imageView);
+
+	// Create Texture Descriptor
+	int descriptorLoc = createTextureDescriptor(imageView);
+
+	// Return location of set with texture
+	return descriptorLoc;
+}
+
+int Render::createTextureDescriptor(VkImageView textureImage) {
+	VkDescriptorSet descriptorSet;
+
+	// Descriptor Set Allocation Info
+	VkDescriptorSetAllocateInfo setAllocInfo = {};
+	setAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	setAllocInfo.descriptorPool = samplerDescriptorPool;
+	setAllocInfo.descriptorSetCount = 1;
+	setAllocInfo.pSetLayouts = &samplerSetLayout;
+
+	// Allocate Descriptor Sets
+	VkResult result = vkAllocateDescriptorSets(mainDevice.logicalDevice, &setAllocInfo, &descriptorSet);
+	if (result != VK_SUCCESS) {
+		throw std::runtime_error("Failed to allocate Texture Descriptor Sets!");
+	}
+
+	// Texture Image Info
+	VkDescriptorImageInfo imageInfo = {};
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;	// Image layout when in use
+	imageInfo.imageView = textureImage;									// Image to bind to set
+	imageInfo.sampler = textureSampler;									// Sampler to use for set
+
+	// Descriptor Write Info
+	VkWriteDescriptorSet descriptorWrite = {};
+	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite.dstSet = descriptorSet;
+	descriptorWrite.dstBinding = 0;
+	descriptorWrite.dstArrayElement = 0;
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptorWrite.descriptorCount = 1;
+	descriptorWrite.pImageInfo = &imageInfo;
+
+	// Update new descriptor set
+	vkUpdateDescriptorSets(mainDevice.logicalDevice, 1, &descriptorWrite, 0, nullptr);
+
+	// Add descriptor set to list
+	samplerDescriptorSets.push_back(descriptorSet);
+
+	// Return descriptor set location
+	return samplerDescriptorSets.size() - 1;
 }

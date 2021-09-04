@@ -11,6 +11,7 @@
 struct Vertex {
 	glm::vec3 pos; // Vertex Position (x, y, z)
 	glm::vec3 col; // Vertex Colour (r, g, b)
+	glm::vec2 tex; // Texture Coords (u, v)
 };
 
 class Mesh {
@@ -18,10 +19,13 @@ public:
 	Mesh();
 	Mesh(VkPhysicalDevice newPhysicalDevice, VkDevice newDevice, 
 		VkQueue transferQueue, VkCommandPool transferCommandPool, 
-		std::vector<Vertex> * vertices, std::vector<uint32_t> * indices);
+		std::vector<Vertex> * vertices, std::vector<uint32_t> * indices,
+		int tid);
 
 	void setModel(glm::mat4 newModel);
 	glm::mat4 getModel();
+
+	int getTexId();
 	
 	int getVertexCount();
 	VkBuffer getVertexBuffer();
@@ -35,6 +39,7 @@ public:
 
 private:
 	glm::mat4 model;
+	int texId;
 	
 	int vertexCount;
 	VkBuffer vertexBuffer;

@@ -37,7 +37,7 @@ int main() {
 	while(!glfwWindowShouldClose(win)) {
 		glfwPollEvents();
 
-		float now = glfwGetTime();
+		float now = (float)glfwGetTime();
 		deltaTime = now - lastTime;
 		lastTime = now;
 
@@ -51,7 +51,7 @@ int main() {
 		firstModel = glm::rotate(firstModel, glm::radians(angle), glm::vec3(0.0f, 0.0f, 1.0f));
 
 		secondModel = glm::translate(secondModel, glm::vec3(0.0f, 0.0f, -3.0f));
-		secondModel = glm::rotate(secondModel, glm::radians(-angle * 100), glm::vec3(0.0f, 0.0f, 1.0f));
+		secondModel = glm::rotate(secondModel, glm::radians(-angle * 10), glm::vec3(0.0f, 0.0f, 1.0f));
 
 		render->updateModel(0, firstModel);
 		render->updateModel(1, secondModel);

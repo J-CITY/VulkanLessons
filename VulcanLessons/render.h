@@ -11,7 +11,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+
 const int MAX_FRAME_DRAWS = 3;
+
+const int MAX_OBJECTS = 2;
 
 namespace VKRENDER {
 
@@ -97,18 +100,28 @@ namespace VKRENDER {
 		std::vector<VkFramebuffer> swapChainFramebuffers;
 		std::vector<VkCommandBuffer> commandBuffers;
 
+		VkSampler textureSampler;
+
 		// - Descriptors
 		VkDescriptorSetLayout descriptorSetLayout;
+		VkDescriptorSetLayout samplerSetLayout;
 		VkPushConstantRange pushConstantRange;
 
 		VkDescriptorPool descriptorPool;
+		VkDescriptorPool samplerDescriptorPool;
 		std::vector<VkDescriptorSet> descriptorSets;
+		std::vector<VkDescriptorSet> samplerDescriptorSets;
 
 		std::vector<VkBuffer> vpUniformBuffer;
 		std::vector<VkDeviceMemory> vpUniformBufferMemory;
 
 		std::vector<VkBuffer> modelDUniformBuffer;
 		std::vector<VkDeviceMemory> modelDUniformBufferMemory;
+
+		// - Assets
+		std::vector<VkImage> textureImages;
+		std::vector<VkDeviceMemory> textureImageMemory;
+		std::vector<VkImageView> textureImageViews;
 		
 		// - Pipeline
 		VkPipeline graphicsPipeline;
@@ -128,6 +141,10 @@ namespace VKRENDER {
 		std::vector<VkSemaphore> imageAvailable;
 		std::vector<VkSemaphore> renderFinished;
 		std::vector<VkFence> drawFences;
+
+		VkImage depthBufferImage;
+		VkDeviceMemory depthBufferImageMemory;
+		VkImageView depthBufferImageView;
 
 		void init();
 		void createInstance();
@@ -149,12 +166,15 @@ namespace VKRENDER {
 		void createCommandPool();
 		void createCommandBuffers();
 		void createSynchronisation();
+		void createTextureSampler();
 
 		void createUniformBuffers();
 		void createDescriptorPool();
 		void createDescriptorSets();
 
 		void updateUniformBuffers(uint32_t imageIndex);
+
+		void createDepthBufferImage();
 		
 		void recordCommands(uint32_t currentImage);
 
@@ -166,10 +186,18 @@ namespace VKRENDER {
 		VkSurfaceFormatKHR chooseBestSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats);
 		VkPresentModeKHR chooseBestPresentationMode(const std::vector<VkPresentModeKHR> presentationModes);
 		VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& surfaceCapabilities);
+		VkFormat chooseSupportedFormat(const std::vector<VkFormat>& formats, VkImageTiling tiling, VkFormatFeatureFlags featureFlags);
 
 		// -- Create Functions
+		VkImage createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags useFlags,
+			VkMemoryPropertyFlags propFlags, VkDeviceMemory* imageMemory);
 		VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 		VkShaderModule createShaderModule(const std::vector<char>& code);
+
+		int createTextureImage(std::string fileName);
+		int createTexture(std::string fileName);
+		int createTextureDescriptor(VkImageView textureImage);
+		
 	};
 
 }

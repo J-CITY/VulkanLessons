@@ -27,5 +27,8 @@
     <ClInclude Include="Utils.h">
       <Filter>Исходные файлы</Filter>
     </ClInclude>
+    <ClInclude Include="stb_image.h">
+      <Filter>Исходные файлы</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
